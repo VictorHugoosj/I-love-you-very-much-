@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Love Heart</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;700&display=swap">
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #060303;
+    --red: #ff3b30;
+    --red-soft: #ff7a70;
+    --red-dim: #9b3a35;
+    --line: rgba(255, 59, 48, .18);
+    --mono: "JetBrains Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+    box-sizing: border-box;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  html, body { height: 100%; margin: 0; }
+  body {
+    display: flex; flex-direction: column; overflow: hidden;
+    background: radial-gradient(120% 90% at 50% 40%, #1c0808 0%, #0b0404 45%, #030202 100%);
+    color: var(--red-dim); font: 500 12px/1 var(--mono);
+  }
+  body::after {                                   /* vinheta nas bordas */
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0, 0, 0, .6) 100%);
+  }
+  .top, .bar {
+    display: flex; align-items: center; gap: 14px; flex: none; z-index: 2;
+    padding: 0 16px; height: 38px; background: rgba(255, 255, 255, .02);
+    backdrop-filter: blur(6px);
+  }
+  .top { border-bottom: 1px solid var(--line); }
+  .bar { border-top: 1px solid var(--line); height: 40px; }
+  .dots { display: flex; gap: 7px; }
+  .dots i { width: 10px; height: 10px; border-radius: 50%; background: #5a1613; }
+  .dots i:first-child { background: var(--red); }
+  .dots i:nth-child(2) { background: #c42a22; }
+  .tab {
+    color: var(--red-soft); letter-spacing: .03em; padding: 5px 12px;
+    border: 1px solid var(--line); border-bottom: none; border-radius: 6px 6px 0 0;
+    background: rgba(255, 59, 48, .06); margin-top: 9px; height: 29px; box-sizing: border-box;
+  }
+  .tab b { color: var(--red); margin-right: 6px; }
+  .grow { flex: 1; }
+  #stage { position: relative; flex: 1; min-height: 0; --p: 0; }
+  #stage::before {                                /* pontinhos de grade + brilho atrás do coração */
+    content: ""; position: absolute; inset: 0;
+    background:
+      radial-gradient(ellipse 42% 48% at 50% 48%, rgba(255, 40, 40, calc(.04 + .16 * var(--p))), transparent 72%),
+      radial-gradient(rgba(255, 59, 48, .09) 1px, transparent 1.2px) 0 0 / 22px 22px;
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 35%, transparent 80%);
+            mask-image: radial-gradient(ellipse at center, #000 35%, transparent 80%);
+  }
+  canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  #state { color: var(--red-soft); transition: color .6s; }
+  #pos { letter-spacing: .02em; }
+  button {
+    font: 700 12px/1 var(--mono); color: var(--red); background: rgba(255, 59, 48, .06);
+    border: 1px solid var(--line); border-radius: 999px; padding: 7px 13px; cursor: pointer;
+    letter-spacing: .03em; transition: background .2s, border-color .2s;
+  }
+  button:hover, button:focus-visible { background: rgba(255, 59, 48, .16); border-color: var(--red); outline: none; }
+  @media (max-width: 560px) { .top .lang, #pos { display: none; } .top, .bar { padding: 0 12px; } }
+</style>
+</head>
+<body>
+<header class="top">
+  <span class="dots"><i></i><i></i><i></i></span>
+  <span class="tab"><b>♥</b>eu_te_amo.heart</span>
+  <span class="grow"></span>
+  <span class="lang">UTF-8</span>
+</header>
+<main id="stage">
+  <canvas id="c" aria-label="Um coração formado pela frase “Eu te amo” em vários idiomas"></canvas>
+</main>
+<footer class="bar">
+  <span id="state">● digitando…</span>
+  <span class="grow"></span>
+  <span id="pos">Ln 1, Col 1</span>
+  <button id="again" type="button">↻ digitar de novo</button>
+</footer>
+
+<script>
+(function () {
+  "use strict";
+
+  // ---------- configurações ----------
+  var CHARS_PER_SEC = 70;       // velocidade da digitação (menor = mais devagar)
+  var FLASH_TIME = 0.4;         // tempo que a letra nova "acende"
+  var EDGE = 1;
+  var FAMILY = '"JetBrains Mono", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace';
+
+  var LANGS = [
+    "Eu te amo", "I love you", "Te amo", "Je t’aime", "Ich liebe dich", "Ti amo",
+    "Я тебя люблю", "愛してる", "我爱你", "사랑해", "Σ’ αγαπώ",
+    "Seni seviyorum", "Kocham cię", "Jag älskar dig", "Ik hou van jou", "Anh yêu em",
+    "Aku cinta kamu", "Я тебе кохаю", "Te iubesc", "Miluji tě",
+    "Szeretlek", "Rakastan sinua", "Jeg elsker dig", "Jeg elsker deg", "T’estimo",
+    "Nakupenda", "Mahal kita", "Aloha au iā ʻoe", "Mi amas vin", "Rwy’n dy garu di",
+    "Tá grá agam duit", "მიყვარხარ", "Ես քեզ սիրում եմ",
+    "Saya cintakan awak", "Ek is lief vir jou", "Volim te", "Обичам те", "Të dua",
+    "Ég elska þig", "Mina armastan sind", "Es tevi mīlu", "Aš tave myliu", "Ľúbim ťa",
+    "Ljubim te", "Inħobbok", "Maite zaitut", "Quérote", "Ngiyakuthanda", "Mo nifẹ rẹ",
+    "Би чамд хайртай", "Te quiero", "Amo-te", "Aishiteru", "Ya tyebya lyublyu",
+    "愛", "爱你", "사랑", "Amor", "Love", "Amour", "Liebe"
+  ];
+  var SEPS = [" ; ", " // ", " => ", " && ", " :: ", " |> ", " == ", " -> ", " { } ", " ; "];
+  var TOKENS = ["<3", "//", "{}", "=>", "&&", "::", "0", "1", ";"];
+  var TEXT_RED = [[255,59,48],[255,69,58],[240,50,45],[255,85,70],[255,45,40]];
+  var CODE_RED = [[150,30,28],[170,40,35],[130,25,25],[160,35,30]];
+  var BG = [8, 3, 3];
+
+  var reduceMotion = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  // ---------- aleatório com semente (o coração sai igual toda vez) ----------
+  var seed = 14;
+  function rnd() {
+    seed |= 0; seed = seed + 0x6D2B79F5 | 0;
+    var t = Math.imul(seed ^ seed >>> 15, 1 | seed);
+    t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+    return ((t ^ t >>> 14) >>> 0) / 4294967296;
+  }
+  function pick(a) { return a[Math.floor(rnd() * a.length)]; }
+  function shuffled(a) {
+    a = a.slice();
+    for (var i = a.length - 1; i > 0; i--) {
+      var j = Math.floor(rnd() * (i + 1)), t = a[i]; a[i] = a[j]; a[j] = t;
+    }
+    return a;
+  }
+
+  // ---------- formato do coração (dois círculos + retas tangentes) ----------
+  function heartPolygon(cx, cy, heartW) {
+    var r = 1, c = 0.8, tip = -2.3;
+    var thT = Math.atan2(tip, -c);
+    var phi = Math.acos(r / Math.hypot(c, tip));
+    var a1 = thT + phi, a2 = thT - phi;
+    var tang = (c + r * Math.cos(a1) > c + r * Math.cos(a2)) ? a1 : a2;
+    var start = Math.atan2(Math.sqrt(r * r - c * c), -c);
+    while (tang > start) tang -= 2 * Math.PI;
+    var right = [], n = 260;
+    for (var i = 0; i <= n; i++) {
+      var a = start + (tang - start) * i / n;
+      right.push([c + r * Math.cos(a), r * Math.sin(a)]);
+    }
+    right.push([0, tip]);
+    var left = right.slice().reverse().map(function (p) { return [-p[0], p[1]]; });
+    var pts = right.concat(left.slice(1));
+    var k = heartW / (2 * (c + r)), ymid = (1 + tip) / 2;
+    return pts.map(function (p) { return [cx + p[0] * k, cy - (p[1] - ymid) * k]; });
+  }
+
+  function scan(poly, y) {
+    var xs = [], n = poly.length;
+    for (var i = 0; i < n; i++) {
+      var x1 = poly[i][0], y1 = poly[i][1], x2 = poly[(i + 1) % n][0], y2 = poly[(i + 1) % n][1];
+      if ((y1 <= y && y < y2) || (y2 <= y && y < y1)) xs.push(x1 + (y - y1) * (x2 - x1) / (y2 - y1));
+    }
+    xs.sort(function (a, b) { return a - b; });
+    var out = [];
+    for (var j = 0; j + 1 < xs.length; j += 2) out.push([xs[j], xs[j + 1]]);
+    return out;
+  }
+
+  // ---------- monta o "código" ----------
+  function pad(L) {
+    var s = "";
+    while (s.length < L) {
+      var rem = L - s.length;
+      s += pick(TOKENS.filter(function (t) { return t.length <= rem; }));
+      if (s.length < L) s += " ";
+    }
+    return s.slice(0, L);
+  }
+  function codeChars(s) { return s.split("").map(function (ch) { return [ch, "code"]; }); }
+
+  function compose(n) {
+    var best = null, t, k;
+    for (t = 0; t < 80; t++) {
+      var pieces = [], total = 0, order = shuffled(LANGS);
+      for (k = 0; k < order.length; k++) {
+        var sep = pieces.length ? pick(SEPS) : "";
+        if (total + sep.length + order[k].length <= n) {
+          pieces.push([sep, order[k]]);
+          total += sep.length + order[k].length;
+        }
+      }
+      if (pieces.length && (!best || n - total < best[0])) best = [n - total, pieces];
+    }
+    if (!best) return codeChars(pad(n));
+    var left = best[0], ps = best[1], out = [], gaps = [];
+    ps.forEach(function (p, i) { if (p[0]) gaps.push(i); });
+    if (gaps.length) {
+      for (k = 0; k < left; k++) ps[gaps[k % gaps.length]][0] += " ";
+      left = 0;
+    } else {
+      out = out.concat(codeChars(pad(Math.floor(left / 2))));
+    }
+    ps.forEach(function (p) {
+      out = out.concat(codeChars(p[0]));
+      p[1].split("").forEach(function (ch) { out.push([ch, "text"]); });
+    });
+    if (!gaps.length) out = out.concat(codeChars(pad(left - Math.floor(left / 2))));
+    return out;
+  }
+
+  // ---------- estado e desenho ----------
+  var stage = document.getElementById("stage");
+  var canvas = document.getElementById("c"), ctx = canvas.getContext("2d");
+  var stateEl = document.getElementById("state"), posEl = document.getElementById("pos");
+  var W = 0, H = 0, cw = 8, lh = 16, fs = 12, items = [];
+  var n = 0, t0 = performance.now(), recent = [], lastPos = "", lastDone = null, lastP = -1;
+
+  function mixCss(c, k) {
+    var r, i, o = [];
+    for (i = 0; i < 3; i++) {
+      r = k <= 1 ? BG[i] + (c[i] - BG[i]) * k : c[i] + (255 - c[i]) * Math.min(1, (k - 1) * 0.9);
+      o.push(Math.max(0, Math.min(255, Math.round(r))));
+    }
+    return "rgb(" + o.join(",") + ")";
+  }
+
+  function build() {
+    seed = 14;
+    var dpr = window.devicePixelRatio || 1;
+    W = stage.clientWidth; H = stage.clientHeight;
+    canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+
+    var heartW = Math.min(W * 0.94, (H * 0.94) / 0.917, 760);
+    fs = Math.max(7, Math.min(13, heartW / 46));
+    ctx.font = "700 " + fs + "px " + FAMILY;
+    cw = ctx.measureText("M").width;
+    lh = Math.round(fs * 1.34);
+
+    var poly = heartPolygon(W / 2, H / 2, heartW);
+    var ytop = Math.min.apply(null, poly.map(function (p) { return p[1]; }));
+    var ybot = Math.max.apply(null, poly.map(function (p) { return p[1]; }));
+    items = [];
+    var ln = 0;
+    for (var y = ytop + 1; y + lh <= ybot; y += lh) {
+      var ym = y + lh / 2, ivs = scan(poly, ym), colBase = 0;
+      ln++;
+      [y + 1, y + lh - 1].forEach(function (yy) {
+        var nov = [];
+        ivs.forEach(function (iv) {
+          scan(poly, yy).forEach(function (s) {
+            var lo = Math.max(iv[0], s[0]), hi = Math.min(iv[1], s[1]);
+            if (hi > lo) nov.push([lo, hi]);
+          });
+        });
+        ivs = nov;
+      });
+      ivs.forEach(function (iv) {
+        var a = iv[0] + EDGE, b = iv[1] - EDGE, cnt = Math.floor((b - a) / cw);
+        if (cnt < 1) return;
+        var x0 = a + ((b - a) - cnt * cw) / 2, base = colBase;
+        compose(cnt).forEach(function (cc, i) {
+          if (cc[0] === " ") return;
+          var rgb = pick(cc[1] === "text" ? TEXT_RED : CODE_RED);
+          items.push({ x: x0 + i * cw + cw / 2, y: ym, ch: cc[0], rgb: rgb, css: mixCss(rgb, 1),
+                       ln: ln, col: base + i + 1 });
+        });
+        colBase += cnt;
+      });
+    }
+  }
+
+  function restart() { n = reduceMotion ? items.length : 0; recent = []; t0 = performance.now(); }
+
+  function draw(now) {
+    var t = (now - t0) / 1000, total = items.length, i;
+    var target = reduceMotion ? total : Math.min(total, Math.floor(t * CHARS_PER_SEC));
+    while (n < target) { recent.push([items[n], t]); n++; }
+
+    ctx.clearRect(0, 0, W, H);
+    ctx.font = "700 " + fs + "px " + FAMILY;
+    ctx.textAlign = "center"; ctx.textBaseline = "middle";
+
+    var flashing = {};
+    recent = recent.filter(function (r) { return t - r[1] < FLASH_TIME; });
+    recent.forEach(function (r) { flashing[items.indexOf(r[0])] = r; });
+
+    for (i = 0; i < n; i++) {
+      var it = items[i], f = flashing[i];
+      ctx.fillStyle = f ? mixCss(it.rgb, 1 + 0.8 * (1 - (t - f[1]) / FLASH_TIME)) : it.css;
+      ctx.fillText(it.ch, it.x, it.y);
+    }
+
+    // cursor: onde vai digitar; no fim fica piscando
+    var cx, cy, show = true;
+    if (n < total) { cx = items[n].x; cy = items[n].y; }
+    else if (total) { cx = items[total - 1].x + cw; cy = items[total - 1].y; show = reduceMotion ? false : Math.floor(t * 2) % 2 === 0; }
+    if (show && total) {
+      ctx.fillStyle = mixCss(TEXT_RED[0], 1);
+      ctx.fillRect(cx - cw / 2, cy - lh / 2 + 2, cw, lh - 3);
+    }
+
+    // barra de status e brilho de fundo (só mexe no DOM quando algo muda)
+    if (total) {
+      var cur = items[Math.min(n, total - 1)], pos = "Ln " + cur.ln + ", Col " + cur.col;
+      if (pos !== lastPos) { posEl.textContent = pos; lastPos = pos; }
+      var done = n >= total;
+      if (done !== lastDone) {
+        stateEl.textContent = done ? "✓ pronto, feito com amor" : "● digitando…";
+        lastDone = done;
+      }
+      var p = Math.round(n / total * 100) / 100;
+      if (p !== lastP) { stage.style.setProperty("--p", p); lastP = p; }
+    }
+    requestAnimationFrame(draw);
+  }
+
+  var timer;
+  function onResize() {
+    clearTimeout(timer);
+    timer = setTimeout(function () {
+      var prev = items.length ? n / items.length : 0;
+      build();
+      n = Math.round(prev * items.length);
+      t0 = performance.now() - (n / CHARS_PER_SEC) * 1000;
+      recent = [];
+    }, 150);
+  }
+  if (window.ResizeObserver) new ResizeObserver(onResize).observe(stage);
+  else window.addEventListener("resize", onResize);
+  document.getElementById("again").addEventListener("click", restart);
+  window.addEventListener("keydown", function (e) { if (e.key === "r" || e.key === "R") restart(); });
+
+  // espera a fonte carregar (para medir a largura certa das letras) e começa
+  function start() { build(); restart(); requestAnimationFrame(draw); }
+  var fontReady = (document.fonts && document.fonts.load) ? document.fonts.load('700 13px "JetBrains Mono"') : Promise.resolve();
+  Promise.race([fontReady, new Promise(function (r) { setTimeout(r, 1500); })]).then(start, start);
+})();
+</script>
+</body>
+</html>
